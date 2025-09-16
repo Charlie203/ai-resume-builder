@@ -510,7 +510,7 @@ export default function App() {
         <div
           ref={previewRef}
           id="resume-preview"
-          style={{ background: '#fff', padding: 20, border: '1px solid #ddd', minHeight: 400 }}
+          style={{ background: '#000000', padding: 20, border: '1px solid #ddd', minHeight: 400 }}
         >
           <TemplateRenderer data={resume} variant={selectedTemplate} />
         </div>
