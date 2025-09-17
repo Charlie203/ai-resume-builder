@@ -1,530 +1,249 @@
-import React, { useState, useRef } from "react";
+import React, { useRef, useState } from 'react';
+import jsPDF from 'jspdf';
+import html2canvas from 'html2canvas';
 
-/*******************************
- * AI Resume Builder - Single File App
- * Drop this file into your Stackblitz React project's src/App.tsx
- * - Default export a React component so Stackblitz can preview it
- * - This file intentionally contains:
- *   - A lightweight form-driven UI for collecting resume data
- *   - Three ATS-friendly templates (Minimal, Modern, Executive)
- *   - An "AI generate" placeholder that shows how to call a backend
- *   - A printable PDF-friendly stylesheet (uses window.print())
- *   - An ATS-ish analyzer and job-description keyword helper
- *
- * IMPORTANT:
- * - This is a front-end prototype. To call real AI (OpenAI/GPT/etc.)
- *   you should create a small serverless endpoint that stores your API key
- *   securely and forwards requests. See the comments around generateWithAI()
- *
- *******************************/
+// Ultra-modern AI Resume Builder - single-file React component
+export default function App(): JSX.Element {
+  const [theme, setTheme] = useState<'light'|'dark'|'elegant'|'creative'|'corporate'>('elegant');
+  const [name, setName] = useState('Your Name');
+  const [title, setTitle] = useState('Senior Product Designer');
+  const [contact, setContact] = useState('name@example.com • +00 000 000');
+  const [summary, setSummary] = useState('Strategic product designer with a record of shipping delightful experiences.');
+  const [experiences, setExperiences] = useState([{ role: 'Senior Designer', company: 'Acme Inc', date: '2020 — Present', bullets: ['Led product redesign', 'Improved metrics by 32%'] }]);
+  const [education, setEducation] = useState([{ school: 'University X', degree: 'B.A. Design', year: '2017' }]);
+  const [skills, setSkills] = useState(['Product Design','Figma','Research']);
 
-type Experience = {
-  id: string;
-  company: string;
-  role: string;
-  start: string;
-  end: string;
-  bullets: string[];
-};
-
-type Education = {
-  id: string;
-  school: string;
-  degree: string;
-  year: string;
-};
-
-type ResumeData = {
-  fullName: string;
-  title: string;
-  email: string;
-  phone: string;
-  location: string;
-  summary: string;
-  experiences: Experience[];
-  education: Education[];
-  skills: string[];
-};
-
-const blankExperience = (): Experience => ({
-  id: String(Math.random()).slice(2),
-  company: "",
-  role: "",
-  start: "",
-  end: "",
-  bullets: [""]
-});
-
-const blankEducation = (): Education => ({
-  id: String(Math.random()).slice(2),
-  school: "",
-  degree: "",
-  year: ""
-});
-
-const initialResume: ResumeData = {
-  fullName: "Your Name",
-  title: "Job Title (e.g. Senior Frontend Engineer)",
-  email: "name@example.com",
-  phone: "(555) 555-5555",
-  location: "City, Country",
-  summary:
-    "Concise 2-3 line professional summary. Use action words and mention your job title and years of experience.",
-  experiences: [blankExperience()],
-  education: [blankEducation()],
-  skills: ["JavaScript", "React", "Team Leadership"]
-};
-
-// Helpful utility: simple keyword extractor from job description
-function extractKeywords(text: string, topN = 15) {
-  const words = text
-    .toLowerCase()
-    .replace(/[\W_]+/g, " ")
-    .split(/\s+/)
-    .filter((w) => w.length > 2);
-  const freq: Record<string, number> = {};
-  words.forEach((w) => (freq[w] = (freq[w] || 0) + 1));
-  const keys = Object.keys(freq).sort((a, b) => freq[b] - freq[a]);
-  return keys.slice(0, topN);
-}
-
-export default function App() {
-  const [resume, setResume] = useState<ResumeData>(initialResume);
-  const [selectedTemplate, setSelectedTemplate] = useState<"minimal" | "modern" | "executive">("minimal");
-  const [jobDescription, setJobDescription] = useState<string>("");
-  const [aiBusy, setAIBusy] = useState(false);
-  const [atsScore, setAtsScore] = useState<number | null>(null);
   const previewRef = useRef<HTMLDivElement | null>(null);
 
-  // --- helpers to mutate resume state ---
-  function updateField<K extends keyof ResumeData>(key: K, value: ResumeData[K]) {
-    setResume((r) => ({ ...r, [key]: value }));
-  }
-
-  function updateExperience(id: string, patch: Partial<Experience>) {
-    setResume((r) => ({
-      ...r,
-      experiences: r.experiences.map((ex) => (ex.id === id ? { ...ex, ...patch } : ex))
-    }));
-  }
-
   function addExperience() {
-    setResume((r) => ({ ...r, experiences: [...r.experiences, blankExperience()] }));
+    setExperiences(s => [...s, { role: 'New Role', company: 'Company', date: 'Year — Year', bullets: ['Achievement'] }]);
   }
 
-  function removeExperience(id: string) {
-    setResume((r) => ({ ...r, experiences: r.experiences.filter((e) => e.id !== id) }));
-  }
-
-  function addExperienceBullet(id: string) {
-    setResume((r) => ({
-      ...r,
-      experiences: r.experiences.map((ex) => (ex.id === id ? { ...ex, bullets: [...ex.bullets, ""] } : ex))
-    }));
-  }
-
-  function updateExperienceBullet(id: string, idx: number, text: string) {
-    setResume((r) => ({
-      ...r,
-      experiences: r.experiences.map((ex) =>
-        ex.id === id ? { ...ex, bullets: ex.bullets.map((b, i) => (i === idx ? text : b)) } : ex
-      )
-    }));
-  }
-
-  function addSkill(skill = "") {
-    setResume((r) => ({ ...r, skills: [...r.skills, skill] }));
-  }
-
-  function updateSkill(i: number, value: string) {
-    setResume((r) => ({ ...r, skills: r.skills.map((s, idx) => (idx === i ? value : s)) }));
-  }
-
-  function removeSkill(i: number) {
-    setResume((r) => ({ ...r, skills: r.skills.filter((_, idx) => idx !== i) }));
-  }
-
-  function addEducation() {
-    setResume((r) => ({ ...r, education: [...r.education, blankEducation()] }));
-  }
-
-  function updateEducation(id: string, patch: Partial<Education>) {
-    setResume((r) => ({
-      ...r,
-      education: r.education.map((ed) => (ed.id === id ? { ...ed, ...patch } : ed))
-    }));
-  }
-
-  // Simple ATS-ish analyzer
-  function analyzeATS() {
-    // Criteria (simple prototype):
-    // - Presence of name/title/contact
-    // - No images or complex layout
-    // - Bullet points used
-    // - Uses plain fonts / short summary
-    let score = 50;
-    if (resume.fullName && resume.title) score += 10;
-    if (resume.email && resume.phone) score += 10;
-    // more bullets increases score
-    const bulletsCount = resume.experiences.reduce((s, ex) => s + ex.bullets.filter(Boolean).length, 0);
-    score += Math.min(20, bulletsCount * 2);
-    // negative if user uses odd characters in summary
-    if (/[<>\/=]/.test(resume.summary)) score -= 10;
-    score = Math.max(0, Math.min(100, score));
-    setAtsScore(Math.round(score));
-    return score;
-  }
-
-  // Download as PDF via print - simpler and ATS-friendly. For production, use server-side PDF or html2pdf.
-  function downloadPDF() {
-    // Add a short CSS tweak for print - we included print styles in the preview area
-    window.print();
-  }
-
-  // Copy resume HTML to clipboard (so user can paste to email or Word)
-  async function copyHtmlToClipboard() {
+  function downloadStyledPDF() {
     if (!previewRef.current) return;
-    const html = previewRef.current.innerHTML;
-    try {
-      await navigator.clipboard.writeText(html);
-      alert("Resume HTML copied to clipboard — you can paste into a document or email.");
-    } catch (e) {
-      alert("Copy failed — your browser may block clipboard from this site.");
-    }
-  }
-
-  // Basic local "AI" generator: combine fields into stronger summary/bullets.
-  // This is a local heuristic generator so you can prototype without an API.
-  function generateLocal() {
-    // create an improved summary from role and skills
-    const skillList = resume.skills.filter(Boolean).slice(0, 6).join(", ");
-    const years = resume.summary.match(/\d+\+?\s+years/)?.[0] || "several years";
-    const newSummary = `${resume.title} with ${years} of experience. Skilled in ${skillList}. Proven record of delivering results.`;
-    // create bullets for first experience
-    const newExperiences = resume.experiences.map((ex, idx) => {
-      const bullets = ex.bullets.slice();
-      if (!bullets.filter(Boolean).length) {
-        bullets[0] = `Led ${Math.max(1, idx + 1)} project(s) to improve product metrics and deliver value.`;
-        bullets[1] = `Used ${resume.skills.slice(0, 3).join(", ")} to solve complex problems and ship features.`;
-      }
-      return { ...ex, bullets };
-    });
-    setResume((r) => ({ ...r, summary: newSummary, experiences: newExperiences }));
-  }
-
-  // AI generation placeholder - DO NOT put secret API keys here in client code in production
-  // Recommended flow:
-  // 1) Create a small serverless function (Vercel/Netlify/AWS Lambda) that stores your OpenAI key.
-  // 2) The client calls that endpoint with the user's resume skeleton and jobDescription.
-  // 3) The server calls OpenAI and returns the generated text.
-  // Example server API contract: POST /api/generate { resume, jobDescription } => { improvedSummary, improvedBullets }
-  async function generateWithAI() {
-    setAIBusy(true);
-    try {
-      // Example fetch (replace /api/generate with your serverless endpoint)
-      // const resp = await fetch('/api/generate', {
-      //   method: 'POST',
-      //   headers: { 'Content-Type': 'application/json' },
-      //   body: JSON.stringify({ resume, jobDescription })
-      // });
-      // const data = await resp.json();
-      // if (data.improvedSummary) updateField('summary', data.improvedSummary);
-      // if (data.experiences) setResume(r => ({ ...r, experiences: data.experiences }));
-
-      // For now: fallback to the local generator so you can test UX without a server or API key
-      await new Promise((res) => setTimeout(res, 900));
-      generateLocal();
-    } catch (err) {
+    const node = previewRef.current;
+    const scale = 2;
+    html2canvas(node, { scale, useCORS: true, allowTaint: true }).then(canvas => {
+      const imgData = canvas.toDataURL('image/png');
+      const pdf = new jsPDF({ orientation: 'portrait', unit: 'pt', format: 'a4' });
+      const pageWidth = pdf.internal.pageSize.getWidth();
+      const pageHeight = pdf.internal.pageSize.getHeight();
+      const imgProps = (pdf as any).getImageProperties(imgData);
+      const imgWidth = pageWidth - 40; // margin
+      const imgHeight = (imgProps.height * imgWidth) / imgProps.width;
+      pdf.addImage(imgData, 'PNG', 20, 20, imgWidth, imgHeight);
+      pdf.save(`${name.replace(/\s+/g,'_')}_styled_resume.pdf`);
+    }).catch(err => {
       console.error(err);
-      alert("AI generation failed — check the server logs or network.");
-    } finally {
-      setAIBusy(false);
-    }
+      alert('Styled PDF generation failed.');
+    });
   }
 
-  // Renderers for templates - keep markup simple and ATS-friendly (no fancy columns or images)
-  const TemplateRenderer: React.FC<{ data: ResumeData; variant: string }> = ({ data, variant }) => {
-    if (variant === "modern") {
-      return (
-        <div className="resume modern" style={{ fontFamily: "Arial, Helvetica, sans-serif" }}>
-          <header style={{ borderBottom: "2px solid #222", paddingBottom: 8, marginBottom: 12 }}>
-            <h1 style={{ margin: 0 }}>{data.fullName}</h1>
-            <div style={{ fontWeight: 600 }}>{data.title} • {data.location}</div>
-            <div style={{ marginTop: 6 }}>{data.email} • {data.phone}</div>
-          </header>
-          <section>
-            <h2 style={{ fontSize: 16, marginBottom: 6 }}>Summary</h2>
-            <p style={{ marginTop: 0 }}>{data.summary}</p>
-          </section>
+  function downloadATSPDF() {
+    const pdf = new jsPDF({ unit: 'pt', format: 'a4' });
+    const left = 40;
+    let y = 40;
+    const lineHeight = 14;
+    pdf.setFont('Helvetica');
+    pdf.setFontSize(18);
+    pdf.text(name, left, y);
+    y += lineHeight + 6;
+    pdf.setFontSize(12);
+    pdf.text(title, left, y);
+    y += lineHeight + 2;
+    pdf.text(contact, left, y);
+    y += lineHeight + 8;
+    pdf.setFontSize(12);
+    pdf.text('Summary', left, y);
+    y += lineHeight;
+    const splitSummary = pdf.splitTextToSize(summary, 500);
+    pdf.text(splitSummary, left, y);
+    y += (splitSummary.length * lineHeight) + 6;
 
-          <section>
-            <h2 style={{ fontSize: 16, marginBottom: 6 }}>Experience</h2>
-            {data.experiences.map((ex) => (
-              <div key={ex.id} style={{ marginBottom: 8 }}>
-                <div style={{ fontWeight: 700 }}>{ex.role} — {ex.company}</div>
-                <div style={{ fontStyle: "italic", fontSize: 12 }}>{ex.start} • {ex.end}</div>
-                <ul>
-                  {ex.bullets.filter(Boolean).map((b, i) => (
-                    <li key={i}>{b}</li>
-                  ))}
-                </ul>
-              </div>
-            ))}
-          </section>
+    pdf.text('Experience', left, y);
+    y += lineHeight;
+    experiences.forEach(exp => {
+      pdf.setFontSize(11);
+      pdf.text(`${exp.role} — ${exp.company}`, left, y);
+      y += lineHeight;
+      pdf.setFontSize(10);
+      pdf.text(exp.date, left, y);
+      y += lineHeight;
+      exp.bullets.forEach(b => {
+        const lines = pdf.splitTextToSize('• ' + b, 480);
+        pdf.text(lines, left + 8, y);
+        y += lines.length * lineHeight;
+      });
+      y += 6;
+      if (y > 720) { pdf.addPage(); y = 40; }
+    });
 
-          <section>
-            <h2 style={{ fontSize: 16, marginBottom: 6 }}>Education</h2>
-            {data.education.map((ed) => (
-              <div key={ed.id}>
-                <div style={{ fontWeight: 700 }}>{ed.school} — {ed.degree}</div>
-                <div style={{ fontSize: 12 }}>{ed.year}</div>
-              </div>
-            ))}
-          </section>
+    pdf.text('Education', left, y);
+    y += lineHeight;
+    education.forEach(ed => {
+      pdf.text(`${ed.school} — ${ed.degree} (${ed.year})`, left, y);
+      y += lineHeight;
+    });
 
-          <section>
-            <h2 style={{ fontSize: 16, marginBottom: 6 }}>Skills</h2>
-            <div>{data.skills.join(" • ")}</div>
-          </section>
-        </div>
-      );
-    }
+    pdf.text('Skills', left, y + 6);
+    pdf.text(skills.join(', '), left, y + 20);
 
-    if (variant === "executive") {
-      return (
-        <div className="resume executive" style={{ fontFamily: "Georgia, serif" }}>
-          <header style={{ textAlign: "center", marginBottom: 12 }}>
-            <h1 style={{ marginBottom: 2 }}>{data.fullName}</h1>
-            <div style={{ fontWeight: 600 }}>{data.title}</div>
-            <div style={{ fontSize: 13 }}>{data.email} • {data.phone} • {data.location}</div>
-          </header>
-          <section>
-            <h3 style={{ marginBottom: 6 }}>Executive Summary</h3>
-            <p style={{ marginTop: 0 }}>{data.summary}</p>
-          </section>
-          <section>
-            <h3>Professional Experience</h3>
-            {data.experiences.map((ex) => (
-              <div key={ex.id} style={{ marginBottom: 8 }}>
-                <div style={{ fontWeight: 700 }}>{ex.role} @ {ex.company}</div>
-                <div style={{ fontStyle: "italic", fontSize: 12 }}>{ex.start} — {ex.end}</div>
-                <ul>
-                  {ex.bullets.filter(Boolean).map((b, i) => <li key={i}>{b}</li>)}
-                </ul>
-              </div>
-            ))}
-          </section>
-          <section>
-            <h3>Education & Skills</h3>
-            <div>
-              {data.education.map((ed) => <div key={ed.id}>{ed.school} — {ed.degree} ({ed.year})</div>)}
-            </div>
-            <div style={{ marginTop: 8 }}>{data.skills.join(', ')}</div>
-          </section>
-        </div>
-      );
-    }
+    pdf.save(`${name.replace(/\s+/g,'_')}_ATS_resume.pdf`);
+  }
 
-    // minimal
-    return (
-      <div className="resume minimal" style={{ fontFamily: "Calibri, sans-serif" }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
-          <h1 style={{ margin: 0 }}>{data.fullName}</h1>
-          <div style={{ textAlign: "right" }}>
-            <div>{data.email}</div>
-            <div>{data.phone}</div>
-            <div>{data.location}</div>
-          </div>
-        </div>
-        <div style={{ fontWeight: 600, marginBottom: 8 }}>{data.title}</div>
-        <section>
-          <h2 style={{ fontSize: 14 }}>Profile</h2>
-          <p style={{ marginTop: 0 }}>{data.summary}</p>
-        </section>
-        <section>
-          <h2 style={{ fontSize: 14 }}>Experience</h2>
-          {data.experiences.map((ex) => (
-            <div key={ex.id} style={{ marginBottom: 8 }}>
-              <div style={{ fontWeight: 700 }}>{ex.role} — {ex.company}</div>
-              <div style={{ fontSize: 12 }}>{ex.start} – {ex.end}</div>
-              <ul>
-                {ex.bullets.filter(Boolean).map((b, i) => <li key={i}>{b}</li>)}
-              </ul>
-            </div>
-          ))}
-        </section>
-        <section>
-          <h2 style={{ fontSize: 14 }}>Education</h2>
-          {data.education.map((ed) => (
-            <div key={ed.id}>{ed.school} — {ed.degree} ({ed.year})</div>
-          ))}
-        </section>
-        <section>
-          <h2 style={{ fontSize: 14 }}>Skills</h2>
-          <div>{data.skills.join(', ')}</div>
-        </section>
-      </div>
-    );
+  function updateExperienceField(index: number, field: 'role'|'company'|'date', value: string) {
+    setExperiences(prev => prev.map((e,i) => i===index ? { ...e, [field]: value } : e));
+  }
+
+  function updateBullet(index: number, bIndex: number, text: string) {
+    setExperiences(prev => prev.map((e,i) => {
+      if (i!==index) return e;
+      const bullets = e.bullets.slice(); bullets[bIndex] = text; return { ...e, bullets };
+    }));
+  }
+
+  function addBullet(index: number) {
+    setExperiences(prev => prev.map((e,i) => i===index ? { ...e, bullets: [...e.bullets, 'New bullet'] } : e));
+  }
+
+  // Theme styles
+  const themeVars = {
+    light: { bg: '#f6fbff', card: 'linear-gradient(180deg,#ffffff, #fbfdff)', accent: '#3b82f6', text: '#0f172a' },
+    dark: { bg: '#0b1020', card: 'linear-gradient(180deg,#0f1724,#07101a)', accent: '#7c3aed', text: '#f8fafc' },
+    elegant: { bg: 'linear-gradient(180deg,#f6f4ff,#f2fbff)', card: 'rgba(255,255,255,0.8)', accent: '#6b21a8', text: '#0b1220' },
+    creative: { bg: 'linear-gradient(90deg,#fff0f6,#f0f9ff)', card: 'rgba(255,255,255,0.85)', accent: '#ef4444', text: '#071027' },
+    corporate: { bg: 'linear-gradient(180deg,#eef2ff,#ffffff)', card: '#ffffff', accent: '#0ea5a3', text: '#04263b' }
   };
 
-  // quick stats to display keywords the job description contains
-  const suggestedKeywords = jobDescription ? extractKeywords(jobDescription, 20) : [];
+  const tv = themeVars[theme];
 
   return (
-    <div style={{ display: "flex", gap: 20, padding: 16, fontFamily: "Inter, system-ui, -apple-system, 'Segoe UI', Roboto" }}>
-      {/* Left: Form */}
-      <div style={{ width: "42%", maxHeight: "90vh", overflow: "auto", paddingRight: 12 }}>
-        <h2>AI Resume Builder (Prototype)</h2>
-        <p style={{ marginTop: 4, marginBottom: 12 }}>Fill the form, choose a template, then click <strong>AI Generate</strong> to get improved text. This prototype uses a local generator by default — connect a server endpoint to enable real AI.</p>
-
-        <label style={{ display: "block", marginBottom: 8 }}>
-          Full name
-          <input value={resume.fullName} onChange={(e) => updateField('fullName', e.target.value)} style={{ width: "100%", padding: 8, marginTop: 4 }} />
-        </label>
-
-        <label style={{ display: "block", marginBottom: 8 }}>
-          Job title
-          <input value={resume.title} onChange={(e) => updateField('title', e.target.value)} style={{ width: "100%", padding: 8, marginTop: 4 }} />
-        </label>
-
-        <div style={{ display: "flex", gap: 8 }}>
-          <label style={{ flex: 1 }}>
-            Email
-            <input value={resume.email} onChange={(e) => updateField('email', e.target.value)} style={{ width: "100%", padding: 8, marginTop: 4 }} />
-          </label>
-          <label style={{ flex: 1 }}>
-            Phone
-            <input value={resume.phone} onChange={(e) => updateField('phone', e.target.value)} style={{ width: "100%", padding: 8, marginTop: 4 }} />
-          </label>
+    <div style={{ minHeight: '100vh', padding: 28, background: tv.bg, fontFamily: "Inter, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto", color: tv.text }}>
+      <div style={{ maxWidth: 1200, margin: '0 auto' }}>
+        <div style={{ textAlign: 'center', marginBottom: 18 }}>
+          <h1 style={{ margin: 0, fontSize: 36, letterSpacing: -0.6, background: `linear-gradient(90deg, ${tv.accent}, #06b6d4)`, WebkitBackgroundClip: 'text', color: 'transparent' }}>AI Resume Builder</h1>
         </div>
 
-        <label style={{ display: "block", marginTop: 8 }}>
-          Location
-          <input value={resume.location} onChange={(e) => updateField('location', e.target.value)} style={{ width: "100%", padding: 8, marginTop: 4 }} />
-        </label>
+        <div style={{ display: 'grid', gridTemplateColumns: '440px 1fr', gap: 22 }}>
+          <div style={{ borderRadius: 18, padding: 18, background: tv.card, boxShadow: '0 8px 30px rgba(2,6,23,0.08)', backdropFilter: 'blur(8px)' }}>
+            <div style={{ display: 'flex', gap: 10, marginBottom: 12 }}>
+              {(['light','dark','elegant','creative','corporate'] as const).map(t => (
+                <button key={t} onClick={() => setTheme(t)} style={{ flex: 1, padding: '8px 10px', borderRadius: 12, border: theme===t ? `2px solid ${themeVars[t].accent}` : '1px solid rgba(0,0,0,0.06)', background: theme===t ? themeVars[t].card : 'transparent', cursor: 'pointer' }}>{t[0].toUpperCase()+t.slice(1)}</button>
+              ))}
+            </div>
 
-        <label style={{ display: "block", marginTop: 8 }}>
-          Summary
-          <textarea value={resume.summary} onChange={(e) => updateField('summary', e.target.value)} rows={4} style={{ width: "100%", padding: 8, marginTop: 4 }} />
-        </label>
+            <div style={{ display: 'grid', gap: 10 }}>
+              <input value={name} onChange={e=>setName(e.target.value)} placeholder='Full name' style={{ width: '100%', padding: 12, borderRadius: 10, border: '1px solid rgba(2,6,23,0.06)' }} />
+              <input value={title} onChange={e=>setTitle(e.target.value)} placeholder='Job title' style={{ width: '100%', padding: 12, borderRadius: 10, border: '1px solid rgba(2,6,23,0.06)' }} />
+              <input value={contact} onChange={e=>setContact(e.target.value)} placeholder='Contact' style={{ width: '100%', padding: 12, borderRadius: 10, border: '1px solid rgba(2,6,23,0.06)' }} />
 
-        <div style={{ marginTop: 8 }}>
-          <h4>Experience</h4>
-          {resume.experiences.map((ex, idx) => (
-            <div key={ex.id} style={{ border: "1px solid #eee", padding: 8, marginBottom: 8 }}>
-              <div style={{ display: "flex", justifyContent: "space-between" }}>
-                <strong>Role #{idx + 1}</strong>
-                <div>
-                  <button onClick={() => removeExperience(ex.id)} aria-label="Remove" style={{ marginLeft: 8 }}>Remove</button>
+              <textarea value={summary} onChange={e=>setSummary(e.target.value)} placeholder='Summary' rows={4} style={{ width: '100%', padding: 12, borderRadius: 10, border: '1px solid rgba(2,6,23,0.06)' }} />
+
+              <div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                  <div style={{ fontWeight: 700 }}>Experience</div>
+                  <button onClick={addExperience} style={{ fontSize: 13, padding: '6px 10px', borderRadius: 10, border: '1px solid rgba(2,6,23,0.06)', background: 'transparent' }}>+ Add</button>
                 </div>
-              </div>
-              <input placeholder="Role" value={ex.role} onChange={(e) => updateExperience(ex.id, { role: e.target.value })} style={{ width: "100%", padding: 6, marginTop: 6 }} />
-              <input placeholder="Company" value={ex.company} onChange={(e) => updateExperience(ex.id, { company: e.target.value })} style={{ width: "100%", padding: 6, marginTop: 6 }} />
-              <div style={{ display: "flex", gap: 8, marginTop: 6 }}>
-                <input placeholder="Start (e.g. Jan 2020)" value={ex.start} onChange={(e) => updateExperience(ex.id, { start: e.target.value })} style={{ flex: 1, padding: 6 }} />
-                <input placeholder="End (e.g. Present)" value={ex.end} onChange={(e) => updateExperience(ex.id, { end: e.target.value })} style={{ flex: 1, padding: 6 }} />
-              </div>
-              <div style={{ marginTop: 6 }}>
-                {ex.bullets.map((b, i) => (
-                  <div key={i} style={{ display: "flex", gap: 8, marginTop: 6 }}>
-                    <input value={b} onChange={(e) => updateExperienceBullet(ex.id, i, e.target.value)} style={{ flex: 1, padding: 6 }} />
-                    <button onClick={() => addExperienceBullet(ex.id)}>+</button>
+                {experiences.map((ex, i) => (
+                  <div key={i} style={{ padding: 10, borderRadius: 10, background: 'rgba(255,255,255,0.6)', marginBottom: 8 }}>
+                    <input value={ex.role} onChange={e=>updateExperienceField(i,'role',e.target.value)} style={{ width: '100%', padding: 8, borderRadius: 8, border: '1px solid rgba(2,6,23,0.06)', marginBottom: 6 }} />
+                    <input value={ex.company} onChange={e=>updateExperienceField(i,'company',e.target.value)} style={{ width: '100%', padding: 8, borderRadius: 8, border: '1px solid rgba(2,6,23,0.06)', marginBottom: 6 }} />
+                    <input value={ex.date} onChange={e=>updateExperienceField(i,'date',e.target.value)} style={{ width: '100%', padding: 8, borderRadius: 8, border: '1px solid rgba(2,6,23,0.06)', marginBottom: 6 }} />
+                    <div style={{ display: 'grid', gap: 6 }}>
+                      {ex.bullets.map((b,bi)=> (
+                        <div key={bi} style={{ display: 'flex', gap: 6 }}>
+                          <input value={b} onChange={e=>updateBullet(i,bi,e.target.value)} style={{ flex: 1, padding: 8, borderRadius: 8, border: '1px solid rgba(2,6,23,0.06)' }} />
+                          <button onClick={()=>addBullet(i)} style={{ padding: '6px 8px', borderRadius: 8 }}>+</button>
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 ))}
               </div>
+
+              <div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                  <div style={{ fontWeight: 700 }}>Education</div>
+                </div>
+                {education.map((ed,i)=> (
+                  <div key={i} style={{ padding: 10, borderRadius: 10, background: 'rgba(255,255,255,0.6)', marginBottom: 8 }}>
+                    <input value={ed.school} onChange={e=> setEducation(prev => prev.map((p,pi)=> i===pi ? {...p, school: e.target.value} : p))} style={{ width: '100%', padding: 8, borderRadius: 8, border: '1px solid rgba(2,6,23,0.06)', marginBottom: 6 }} />
+                    <input value={ed.degree} onChange={e=> setEducation(prev => prev.map((p,pi)=> i===pi ? {...p, degree: e.target.value} : p))} style={{ width: '100%', padding: 8, borderRadius: 8, border: '1px solid rgba(2,6,23,0.06)', marginBottom: 6 }} />
+                    <input value={ed.year} onChange={e=> setEducation(prev => prev.map((p,pi)=> i===pi ? {...p, year: e.target.value} : p))} style={{ width: '100%', padding: 8, borderRadius: 8, border: '1px solid rgba(2,6,23,0.06)', marginBottom: 6 }} />
+                  </div>
+                ))}
+              </div>
+
+              <div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                  <div style={{ fontWeight: 700 }}>Skills</div>
+                  <button onClick={()=> setSkills(s=> [...s,'New'])} style={{ padding: '6px 10px', borderRadius: 10 }}>+ Add</button>
+                </div>
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                  {skills.map((s,i)=> (
+                    <input key={i} value={s} onChange={e=> setSkills(prev => prev.map((p,pi)=> pi===i? e.target.value : p))} style={{ padding: '6px 10px', borderRadius: 999, border: '1px solid rgba(2,6,23,0.06)' }} />
+                  ))}
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                <button onClick={downloadStyledPDF} style={{ flex: 1, padding: '12px 14px', borderRadius: 12, background: `linear-gradient(90deg, ${tv.accent}, #06b6d4)`, color: '#fff', border: 'none' }}>Download Styled PDF</button>
+                <button onClick={downloadATSPDF} style={{ flex: 1, padding: '12px 14px', borderRadius: 12, background: 'transparent', border: '2px solid rgba(2,6,23,0.08)' }}>Download ATS PDF</button>
+              </div>
+
             </div>
-          ))}
-          <button onClick={addExperience}>Add Experience</button>
-        </div>
+          </div>
 
-        <div style={{ marginTop: 8 }}>
-          <h4>Education</h4>
-          {resume.education.map((ed) => (
-            <div key={ed.id} style={{ border: "1px solid #eee", padding: 8, marginBottom: 8 }}>
-              <input placeholder="School" value={ed.school} onChange={(e) => updateEducation(ed.id, { school: e.target.value })} style={{ width: "100%", padding: 6, marginTop: 6 }} />
-              <input placeholder="Degree" value={ed.degree} onChange={(e) => updateEducation(ed.id, { degree: e.target.value })} style={{ width: "100%", padding: 6, marginTop: 6 }} />
-              <input placeholder="Year" value={ed.year} onChange={(e) => updateEducation(ed.id, { year: e.target.value })} style={{ width: "100%", padding: 6, marginTop: 6 }} />
+          <div style={{ borderRadius: 18, padding: 20, background: tv.card, boxShadow: '0 10px 40px rgba(2,6,23,0.08)', backdropFilter: 'blur(6px)' }}>
+            <div ref={previewRef} style={{ width: '100%', maxWidth: 720, margin: '0 auto', padding: 24, borderRadius: 12, background: theme==='dark' ? 'rgba(8,10,20,0.6)' : 'rgba(255,255,255,0.95)', color: tv.text }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div>
+                  <div style={{ fontSize: 22, fontWeight: 800 }}>{name}</div>
+                  <div style={{ marginTop: 6, fontSize: 13, opacity: 0.9 }}>{title}</div>
+                </div>
+                <div style={{ textAlign: 'right', fontSize: 12, opacity: 0.9 }}>{contact}</div>
+              </div>
+
+              <div style={{ marginTop: 18, display: 'grid', gridTemplateColumns: '1fr 220px', gap: 18 }}>
+                <div>
+                  <div style={{ fontWeight: 700, marginBottom: 8 }}>Summary</div>
+                  <div style={{ lineHeight: 1.45 }}>{summary}</div>
+
+                  <div style={{ marginTop: 14 }}>
+                    <div style={{ fontWeight: 700, marginBottom: 8 }}>Experience</div>
+                    {experiences.map((ex,i)=> (
+                      <div key={i} style={{ marginBottom: 10 }}>
+                        <div style={{ fontWeight: 700 }}>{ex.role}</div>
+                        <div style={{ fontSize: 12, opacity: 0.85 }}>{ex.company} • {ex.date}</div>
+                        <ul style={{ marginTop: 6 }}>
+                          {ex.bullets.map((b,bi)=> <li key={bi} style={{ marginBottom: 6 }}>{b}</li>)}
+                        </ul>
+                      </div>
+                    ))}
+                  </div>
+
+                </div>
+
+                <div style={{ borderLeft: '1px solid rgba(2,6,23,0.04)', paddingLeft: 12 }}>
+                  <div style={{ fontWeight: 700, marginBottom: 6 }}>Education</div>
+                  {education.map((ed,i)=> (
+                    <div key={i} style={{ marginBottom: 10 }}>
+                      <div style={{ fontWeight: 700 }}>{ed.school}</div>
+                      <div style={{ fontSize: 12, opacity: 0.85 }}>{ed.degree} • {ed.year}</div>
+                    </div>
+                  ))}
+
+                  <div style={{ marginTop: 10 }}>
+                    <div style={{ fontWeight: 700, marginBottom: 6 }}>Skills</div>
+                    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>{skills.map((s,i)=> <div key={i} style={{ background: 'rgba(0,0,0,0.06)', padding: '6px 10px', borderRadius: 999, fontSize: 12 }}>{s}</div>)}</div>
+                  </div>
+                </div>
+              </div>
+
             </div>
-          ))}
-          <button onClick={addEducation}>Add Education</button>
-        </div>
-
-        <div style={{ marginTop: 8 }}>
-          <h4>Skills</h4>
-          {resume.skills.map((s, i) => (
-            <div key={i} style={{ display: "flex", gap: 8, marginTop: 6 }}>
-              <input value={s} onChange={(e) => updateSkill(i, e.target.value)} style={{ flex: 1, padding: 6 }} />
-              <button onClick={() => removeSkill(i)}>Remove</button>
-            </div>
-          ))}
-          <button onClick={() => addSkill("")}>Add Skill</button>
-        </div>
-
-        <div style={{ marginTop: 12 }}>
-          <h4>Job description (paste here to match keywords)</h4>
-          <textarea value={jobDescription} onChange={(e) => setJobDescription(e.target.value)} rows={6} style={{ width: "100%", padding: 8 }} />
-          <div style={{ marginTop: 8 }}>
-            Suggested keywords: {suggestedKeywords.slice(0, 10).join(', ') || <em>Paste a JD to get suggestions</em>}
           </div>
-        </div>
 
-        <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
-          <button onClick={generateWithAI} disabled={aiBusy}>{aiBusy ? 'Generating…' : 'AI Generate'}</button>
-          <button onClick={generateLocal}>Quick Improve (local)</button>
-          <button onClick={() => { analyzeATS(); }}>Analyze ATS</button>
         </div>
-
-        <div style={{ marginTop: 12 }}>
-          <label>Template</label>
-          <div style={{ display: "flex", gap: 8, marginTop: 6 }}>
-            <button onClick={() => setSelectedTemplate('minimal')} aria-pressed={selectedTemplate === 'minimal'}>Minimal</button>
-            <button onClick={() => setSelectedTemplate('modern')} aria-pressed={selectedTemplate === 'modern'}>Modern</button>
-            <button onClick={() => setSelectedTemplate('executive')} aria-pressed={selectedTemplate === 'executive'}>Executive</button>
-          </div>
-        </div>
-
-        <div style={{ marginTop: 16 }}>
-          <button onClick={downloadPDF}>Download PDF (Print)</button>
-          <button onClick={copyHtmlToClipboard}>Copy HTML</button>
-        </div>
-
-        <div style={{ marginTop: 12 }}>
-          <strong>ATS Score:</strong> {atsScore ?? '—'}
-        </div>
-
-        <div style={{ marginTop: 12, fontSize: 12, color: '#666' }}>
-          <p><strong>Notes:</strong> This prototype intentionally uses simple, ATS-friendly markup (no images, no complex columns). For a production app you can add server-side PDF generation, cloud AI calls, persistent user accounts, and an admin panel to upload additional templates.</p>
-        </div>
-      </div>
-
-      {/* Right: Preview */}
-      <div style={{ width: "58%", maxHeight: "90vh", overflow: "auto" }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-          <h3 style={{ margin: 0 }}>Preview — {selectedTemplate}</h3>
-          <div>
-            <button onClick={() => { window.alert('Share link created: feature to add in production'); }}>Share</button>
-          </div>
-        </div>
-
-        {/* print-friendly container */}
-        <div
-          ref={previewRef}
-          id="resume-preview"
-          style={{ background: '#000000', padding: 20, border: '1px solid #ddd', minHeight: 400 }}
-        >
-          <TemplateRenderer data={resume} variant={selectedTemplate} />
-        </div>
-
-        {/* print CSS — when the user prints, only the preview should be visible */}
-        <style>
-          {`
-            @media print {
-              body * { visibility: hidden; }
-              #resume-preview, #resume-preview * { visibility: visible; }
-              #resume-preview { position: absolute; left: 0; top: 0; width: 100%; }
-            }
-          `}
-        </style>
       </div>
     </div>
   );
